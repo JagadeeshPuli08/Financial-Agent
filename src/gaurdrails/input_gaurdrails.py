@@ -2,6 +2,7 @@ import os
 import json
 
 from src.llm.client import chat_completion
+from src.tracing.tracing import record_current_error
 from dotenv import load_dotenv
 
 
@@ -51,7 +52,8 @@ class InputGuardrailClass:
                         "role": "user",
                         "content": user_prompt
                     }
-                ]
+                ],
+                generation_name="input-guardrail",
             )
             content = response.choices[0].message.content
             result = GuardrailResponse.model_validate_json(
@@ -61,6 +63,7 @@ class InputGuardrailClass:
 
         except Exception as exc:
             # Fail closed: never approve when validation fails
+            record_current_error(exc)
             return GuardrailResponse(
                 approved=False,
                 category="ambiguous_request",

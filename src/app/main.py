@@ -9,6 +9,14 @@ from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 
 from src.app.modals import QueryRequest, QueryResponse
+from src.app.settings import APP_NAME
+from src.tracing.tracing import (
+    initialize_tracing,
+    observe_span,
+    shutdown_tracing,
+    trace_error_details,
+    trace_user_identifier,
+)
 from src.pipeline.transaction_pipeline import (
     TransactionRAGPipeline,
     UserNotFoundError,
@@ -22,18 +30,22 @@ df = None
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global df
-    file_path = os.getenv("SOURCE_FILE_PATH")
-    if not file_path:
-        raise ValueError("SOURCE_FILE_PATH not configured")
-    df = pd.read_excel(file_path)
-    yield
-    df = None
+    initialize_tracing()
+    try:
+        file_path = os.getenv("SOURCE_FILE_PATH")
+        if not file_path:
+            raise ValueError("SOURCE_FILE_PATH not configured")
+        df = pd.read_excel(file_path)
+        yield
+    finally:
+        shutdown_tracing()
+        df = None
 
 
 app = FastAPI(
-    title="Personal Finance Analysis API",
+    title=APP_NAME,
     version="1.0.0",
-    description="HTTP interface for the transaction analysis pipeline.",
+    description=f"HTTP interface for {APP_NAME}.",
     lifespan=lifespan
 )
 
@@ -51,21 +63,55 @@ def health():
     response_model=QueryResponse,
 )
 async def chat(request: QueryRequest) -> QueryResponse | JSONResponse:
-    try:
-        return await TransactionRAGPipeline(request.user_id.strip(), request.prompt, df)
-    except UserNotFoundError:
-        return JSONResponse(
-            status_code=404,
-            content={"detail": "User not found."},
-        )
-    except Exception:
-        logger.exception("Unexpected error while processing chat request")
-        return JSONResponse(
-            status_code=500,
-            content={
+    with observe_span(
+        "POST /chat",
+        input=request.model_dump(mode="json"),
+        trace_user_id=trace_user_identifier(request.user_id.strip()),
+    ) as trace:
+        try:
+            response = await TransactionRAGPipeline(
+                request.user_id.strip(),
+                request.prompt,
+                df,
+            )
+            if trace is not None:
+                response_body = response.model_dump(mode="json")
+                trace.set_trace_io(
+                    input=request.model_dump(mode="json"),
+                    output=response_body,
+                )
+            return response
+        except UserNotFoundError:
+            error_response = {"detail": "User not found."}
+            if trace is not None:
+                trace.set_trace_io(
+                    input=request.model_dump(mode="json"),
+                    output=error_response,
+                )
+            return JSONResponse(
+                status_code=404,
+                content=error_response,
+            )
+        except Exception as exc:
+            logger.exception("Unexpected error while processing chat request")
+            error_response = {
                 "detail": "An unexpected error occurred while processing your request."
-            },
-        )
+            }
+            if trace is not None:
+                details = trace_error_details(exc)
+                trace.update(
+                    level="ERROR",
+                    status_message=details["error_type"],
+                    metadata=details,
+                )
+                trace.set_trace_io(
+                    input=request.model_dump(mode="json"),
+                    output=error_response,
+                )
+            return JSONResponse(
+                status_code=500,
+                content=error_response,
+            )
 
 if __name__ == "__main__":
     uvicorn.run(app)

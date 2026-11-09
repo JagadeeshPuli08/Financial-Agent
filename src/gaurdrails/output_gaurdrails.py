@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from src.gaurdrails.prompts import OUTPUT_GAURDRAIL_INSTRUCTION
 from src.gaurdrails.schemas import GuardrailResponse
 from src.llm.client import chat_completion
+from src.tracing.tracing import record_current_error
 
 load_dotenv()
 
@@ -22,7 +23,6 @@ class OutputGuardrailClass:
         self,
         user_prompt: str,
         assistant_response: str,
-        visualizations: list[str] | None = None,
     ) -> GuardrailResponse:
         try:
             response = chat_completion(
@@ -38,16 +38,17 @@ class OutputGuardrailClass:
                             {
                                 "user_request": user_prompt,
                                 "assistant_response": assistant_response,
-                                "visualizations": visualizations or [],
                             },
                             ensure_ascii=False,
                         ),
                     },
                 ],
+                generation_name="output-guardrail",
             )
             content = response.choices[0].message.content
             return GuardrailResponse.model_validate_json(content)
         except Exception as exc:
+            record_current_error(exc)
             return GuardrailResponse(
                 approved=False,
                 category="invalid_request",
