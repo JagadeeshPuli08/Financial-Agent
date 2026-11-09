@@ -56,7 +56,19 @@ def _make_user_visualization_tool(
 
 def _make_user_pandas_tool(user_df: pd.DataFrame):
     def execute_user_pandas_code(code: str) -> dict[str, Any]:
-        return execute_pandas_code(code, user_df)
+        with observe_span(
+            "execute_pandas_code",
+            input={"code": code},
+        ) as tool_span:
+            result = execute_pandas_code(code, user_df)
+            if tool_span is not None:
+                tool_error = result.get("error")
+                tool_span.update(
+                    level="ERROR" if tool_error else "DEFAULT",
+                    status_message=tool_error,
+                    output=result,
+                )
+            return result
 
     execute_user_pandas_code.__name__ = "execute_pandas_code"
     execute_user_pandas_code.__doc__ = (
