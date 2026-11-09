@@ -72,7 +72,9 @@ def _make_user_pandas_tool(user_df: pd.DataFrame):
 
     execute_user_pandas_code.__name__ = "execute_pandas_code"
     execute_user_pandas_code.__doc__ = (
-        "Execute Pandas analysis code against only the current user's transactions."
+        "Execute code using the provided user_df and pd variables. Do not import "
+        "modules; basic helpers such as len, str, float, and round are available. "
+        "Assign the final JSON-compatible value to result. Do not use print."
     )
     return execute_user_pandas_code
 

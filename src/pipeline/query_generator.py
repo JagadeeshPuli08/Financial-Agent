@@ -82,9 +82,13 @@ name; if it is missing or empty, greet without one.
 When calculations are required:
 
 1. Generate executable Pandas code using only `user_df`.
-2. Assign the final output to `result`.
-3. Call `execute_pandas_code`.
-4. Use the returned result to formulate the answer.
+2. `user_df` and `pd` are provided by the tool. Do not write import statements.
+3. Use only the tool's provided basic built-ins, such as `len`, `str`, `float`,
+   `round`, and `sum`; do not use `print`.
+4. Assign the final JSON-compatible output to `result`, usually a dictionary
+   containing the calculated values and summaries needed for the answer.
+5. Return the result from the tool and formulate the answer from it; do not rely
+   on printed output.
 
 Requirements:
 
