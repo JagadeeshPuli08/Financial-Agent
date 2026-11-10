@@ -3,7 +3,7 @@ import os
 
 from dotenv import load_dotenv
 
-from src.gaurdrails.prompts import OUTPUT_GAURDRAIL_INSTRUCTION
+from src.prompts.instructions import OUTPUT_GAURDRAIL_INSTRUCTION
 from src.gaurdrails.schemas import GuardrailResponse
 from src.llm.client import chat_completion
 from src.tracing.tracing import record_current_error

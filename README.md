@@ -29,14 +29,14 @@ or share its API keys.
 | Variable | Required | Purpose |
 |---|---|---|
 | `OPENROUTER_API_KEY` | Yes for the configured OpenRouter models | API key used by the guardrail LLM requests. |
-| `GUARDRAIL_MODEL` | Yes | LiteLLM model name for input and output guardrails. |
+| `GUARDRAIL_MODEL` | Yes | LiteLLM model name for the input/output guardrails and response rewriter. |
 | `BASE_MODEL` | Yes | LiteLLM model name for the financial agent. |
 | `SOURCE_FILE_PATH` | Yes | Path to the Excel workbook. Relative paths are resolved from the project root when starting the API there. |
 | `APP_NAME` | No | FastAPI/ADK application name and Langfuse trace name. |
 | `AGENT_NAME` | No | ADK agent name and agent observation/generation label. |
 | `FALLBACK_MODEL` | No | Optional fallback model used by the guardrail completion client. |
-| `MAX_GAURDRAILS_TOKENS` | No | Token limit passed to the agent and guardrail LLM calls; defaults to `50000`. |
-| `MAX_RETRIES` | No | Number of retries for guardrail LLM requests; defaults to `1`. |
+| `MAX_GAURDRAILS_TOKENS` | No | Token limit passed to the financial agent and guardrail completion calls; defaults to `50000`. The response rewriter has a separate `4000` token limit. |
+| `MAX_RETRIES` | No | Number of retries for guardrail and response-rewriter LLM requests; defaults to `1`. |
 | `LAST_N` | No | Maximum number of recent interactions kept in the in-memory conversation history; defaults to `10`. |
 | `LANGFUSE_PUBLIC_KEY` | No | Enables Langfuse tracing when set together with the secret key. |
 | `LANGFUSE_SECRET_KEY` | No | Enables Langfuse tracing when set together with the public key. |
@@ -98,9 +98,9 @@ The response contains:
 
 | Field | Description |
 |---|---|
-| `response` | The agent's answer. |
+| `response` | The rewritten, user-facing answer, after output-guardrail validation. |
 | `data_summary` | The user's transaction profile summary. |
-| `visualizations` | Relative paths to chart images generated or reused for this response. |
+| `visualizations` | Relative paths to chart images generated during this request. |
 | `cache_hit` | Whether the user's profile was already cached in this process. |
 | `latency_ms` | Pipeline latency in milliseconds. |
 | `guardrail_flags` | Input/output guardrail flags, if any. |
@@ -142,6 +142,11 @@ running on another machine, access the image on that server or add an
 authenticated static-file/download route before expecting a remote client to
 open the returned path. Generated PNGs are ignored by Git.
 
+The agent may also reuse a previous chart path in its response text when
+relevant. The `visualizations` array currently lists only charts generated
+during the current request; a reused path is not automatically added to that
+array.
+
 ## Conversation context
 
 Recent questions, answers, and chart paths are cached per user in process
@@ -151,6 +156,30 @@ visualization paths, not the underlying calculation tables; changed metrics,
 date ranges, or groupings are recomputed from the transaction data. Set
 `LAST_N` to change how many recent interactions are retained.
 
+## Pandas analysis execution
+
+The Pandas tool receives the current user's transaction data as `user_df` and
+has Pandas available as `pd`; generated code must not import modules. Execution
+allows only a limited set of built-ins: `abs`, `all`, `any`, `bool`, `dict`,
+`enumerate`, `float`, `int`, `len`, `list`, `max`, `min`, `range`, `round`,
+`sorted`, `str`, `sum`, `tuple`, and `zip`. In particular, `print`, `open`,
+`eval`, and `exec` are unavailable inside generated analysis code.
+
+Generated code must put its final JSON-compatible result in a variable named
+`result`. Printed output is not captured or used as the analysis result. The
+executor returns either a normalized result or an error to the agent, which
+may retry with corrected code.
+
+## Response rewriting and guardrails
+
+After the agent responds, a response-rewriter LLM call removes internal
+reasoning and tool narration before the output guardrail evaluates the
+user-facing answer. The rewriter is instructed to preserve facts, figures,
+caveats, chart paths, and a user name already present in the draft without
+adding or recalculating information. The output guardrail checks relevance and supported scope; a chart filename
+containing the current user's name alone is not treated as evidence that
+another user's private data was exposed.
+
 ## Langfuse tracing (optional)
 
 Set both `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY` to enable tracing.
@@ -159,11 +188,15 @@ When credentials are absent, the API runs without Langfuse tracing.
 
 Each `/chat` request is traced with the submitted request JSON as trace input
 and the API response JSON as trace output. Child observations cover the input
-guardrail, financial agent, and output guardrail; LiteLLM model generations
-are associated with the trace. Each child records its relevant input and
-result; raised exceptions are recorded with their type and a redacted message.
-Guardrail validation failures that are handled internally are marked as
-validation failures with their reason and risk flags.
+guardrail, financial agent, Pandas code execution, response rewriter, and
+output guardrail in that order; LiteLLM model generations are associated with
+the trace. The agent draft and rewritten user-facing response are recorded
+separately. The Pandas execution observation includes generated code and the
+executor result, which may contain transaction-derived data. Each child
+records its relevant input and result; raised exceptions are recorded with
+their type and a redacted message. Guardrail validation failures that are
+handled internally are marked as validation failures with their reason and
+risk flags.
 
 LLM traces may include user prompts, transaction-derived content, and model
 responses. Use an appropriately secured Langfuse project and configure access

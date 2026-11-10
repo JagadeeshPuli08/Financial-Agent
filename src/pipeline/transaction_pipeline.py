@@ -19,6 +19,7 @@ from src.tracing.tracing import litellm_trace_metadata, observe_span
 from src.gaurdrails.input_gaurdrails import input_gaurdrail
 from src.gaurdrails.output_gaurdrails import output_gaurdrail
 from src.pipeline.query_generator import build_query_generation_prompt
+from src.pipeline.response_rewriter import rewrite_response
 from src.tools.pandas_executor import execute_pandas_code
 from src.tools.visualization_tools import bar, barh, imshow, pie, plot, stackplot
 
@@ -72,9 +73,10 @@ def _make_user_pandas_tool(user_df: pd.DataFrame):
 
     execute_user_pandas_code.__name__ = "execute_pandas_code"
     execute_user_pandas_code.__doc__ = (
-        "Execute code using the provided user_df and pd variables. Do not import "
-        "modules; basic helpers such as len, str, float, and round are available. "
-        "Assign the final JSON-compatible value to result. Do not use print."
+        "Execute code using the provided user_df and pd variables. Imports and "
+        "print are unavailable. Available built-ins: abs, all, any, bool, dict, "
+        "enumerate, float, int, len, list, max, min, range, round, sorted, str, "
+        "sum, tuple, zip. Assign the final JSON-compatible value to result."
     )
     return execute_user_pandas_code
 
@@ -220,16 +222,34 @@ async def TransactionRAGPipeline(
         if final_event is None or final_event.content is None:
             raise RuntimeError(f"{AGENT_NAME} did not return a final response.")
 
-        response_text = "\n".join(
+        response_draft = "\n".join(
             part.text for part in final_event.content.parts if part.text
         )
         if agent_span is not None:
             agent_span.update(
                 output={
-                    "response": response_text,
+                    "response_draft": response_draft,
                     "visualizations": image_paths.copy(),
                 }
             )
+    available_visualization_paths = list(dict.fromkeys([*viz_state, *image_paths]))
+    with observe_span(
+        "response-rewriter",
+        input={
+            "user_query": query,
+            "agent_draft": response_draft,
+            "visualization_paths": available_visualization_paths,
+        },
+    ) as rewriter_span:
+        response_text = rewrite_response(
+            user_prompt=query,
+            user_name=user_profile.user_name,
+            assistant_draft=response_draft,
+            visualization_paths=available_visualization_paths,
+        )
+        if rewriter_span is not None:
+            rewriter_span.update(output={"rewritten_response": response_text})
+
     with observe_span(
         "output-guardrail",
         input={

@@ -6,7 +6,7 @@ from src.tracing.tracing import record_current_error
 from dotenv import load_dotenv
 
 
-from src.gaurdrails.prompts import INPUT_GAURDRAIL_INSTRUCTION
+from src.prompts.instructions import INPUT_GAURDRAIL_INSTRUCTION
 from src.gaurdrails.schemas import GuardrailResponse
 
 

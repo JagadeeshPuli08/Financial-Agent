@@ -82,13 +82,16 @@ name; if it is missing or empty, greet without one.
 When calculations are required:
 
 1. Generate executable Pandas code using only `user_df`.
-2. `user_df` and `pd` are provided by the tool. Do not write import statements.
-3. Use only the tool's provided basic built-ins, such as `len`, `str`, `float`,
-   `round`, and `sum`; do not use `print`.
+2. `user_df` and `pd` are provided by the tool. Do not write import statements;
+   imports are not available during execution.
+3. The only Python built-ins available are `abs`, `all`, `any`, `bool`, `dict`,
+   `enumerate`, `float`, `int`, `len`, `list`, `max`, `min`, `range`, `round`,
+   `sorted`, `str`, `sum`, `tuple`, and `zip`. In particular, do not use
+   `print`, `__import__`, `open`, `eval`, or `exec`.
 4. Assign the final JSON-compatible output to `result`, usually a dictionary
    containing the calculated values and summaries needed for the answer.
-5. Return the result from the tool and formulate the answer from it; do not rely
-   on printed output.
+5. Do not print intermediate values. Put all needed totals, tables, and
+   summaries into `result`, then formulate the answer from the returned result.
 
 Requirements:
 
